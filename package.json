@@ -1,0 +1,34 @@
+{
+  "name": "whale-agent",
+  "version": "1.0.0",
+  "description": "G.A.M.E agent for whale tracking and analysis on Base",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "backfill": "tsx src/scripts/backfill.ts",
+    "init-db": "tsx src/scripts/init-db.ts"
+  },
+  "keywords": ["virtuals", "game", "whale-tracking", "defi", "base"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "pg": "^8.11.3",
+    "node-telegram-bot-api": "^0.64.0",
+    "node-cron": "^3.0.3",
+    "ethers": "^6.9.0",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "graphql": "^16.8.1",
+    "graphql-request": "^6.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.4",
+    "@types/node-telegram-bot-api": "^0.64.0",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

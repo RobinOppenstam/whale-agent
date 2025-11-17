@@ -3,6 +3,7 @@ import TelegramBot from 'node-telegram-bot-api';
 export interface TelegramCommandHandler {
   analyzeToken(tokenSymbolOrAddress: string): Promise<any>;
   getStatus(): any;
+  getPortfolio(): Promise<any>;
   triggerAnalysis(): Promise<any>;
   addToken(address: string, symbol: string): any;
   removeToken(symbolOrAddress: string): any;
@@ -29,6 +30,7 @@ export class TelegramService {
       { command: 'start', description: 'Start the bot and see welcome message' },
       { command: 'help', description: 'Show available commands' },
       { command: 'status', description: 'Get current status of tracked tokens' },
+      { command: 'portfolio', description: 'Get portfolio dashboard for all tokens' },
       { command: 'analyze', description: 'Analyze a specific token (e.g., /analyze WIRE)' },
       { command: 'trigger', description: 'Trigger immediate analysis for all tokens' },
       { command: 'add', description: 'Add a token to track (e.g., /add 0x123... SYMBOL)' },
@@ -56,6 +58,7 @@ Welcome! I'm your AI whale tracking agent for Base network tokens.
 
 <b>Available Commands:</b>
 /status - View tracked tokens and next run time
+/portfolio - Get portfolio dashboard for all tokens
 /analyze SYMBOL - Analyze a specific token
 /trigger - Run analysis for all tokens now
 /add ADDRESS SYMBOL - Track a new token
@@ -83,6 +86,7 @@ Reports are sent automatically every 6 hours!
 
 <b>Queries:</b>
 /status - Show agent status and tracked tokens
+/portfolio - Get multi-token dashboard with opportunities & risks
 /analyze &lt;token&gt; - Get detailed analysis for a token
   Example: <code>/analyze WIRE</code>
 
@@ -125,6 +129,35 @@ Automatic analysis runs every 6 hours at :00
 ${status.trackedTokens.map((t: any) => `• ${t.symbol} - <code>${t.address.substring(0, 10)}...</code>`).join('\n')}
 `;
         await this.bot.sendMessage(msg.chat.id, statusMessage, { parse_mode: 'HTML' });
+      } catch (error: any) {
+        await this.bot.sendMessage(msg.chat.id, `❌ Error: ${error.message}`);
+      }
+    });
+
+    // /portfolio command
+    this.bot.onText(/\/portfolio/, async (msg) => {
+      if (msg.chat.id.toString() !== this.chatId) return;
+
+      try {
+        if (!this.commandHandler) {
+          await this.bot.sendMessage(msg.chat.id, '❌ Command handler not initialized');
+          return;
+        }
+
+        await this.bot.sendMessage(msg.chat.id, '📊 Generating portfolio dashboard... This may take a few minutes.');
+
+        const result = await this.commandHandler.getPortfolio();
+
+        if (result.error) {
+          await this.bot.sendMessage(msg.chat.id, `❌ ${result.error}`);
+        } else {
+          // Send the portfolio dashboard
+          await this.sendReport(result.markdown, 'Portfolio');
+          await this.bot.sendMessage(
+            msg.chat.id,
+            `✅ Portfolio dashboard generated successfully!\nAnalyzed ${result.tokensAnalyzed}/${result.totalTokens} tokens`
+          );
+        }
       } catch (error: any) {
         await this.bot.sendMessage(msg.chat.id, `❌ Error: ${error.message}`);
       }

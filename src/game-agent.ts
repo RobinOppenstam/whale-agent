@@ -128,7 +128,59 @@ export class GameAgent {
       schedule: 'Every 6 hours'
     };
   }
-  
+
+  /**
+   * Query: Generate portfolio dashboard for all tracked tokens
+   */
+  async getPortfolio(): Promise<any> {
+    console.log(`📊 Generating portfolio dashboard for ${this.tokens.length} tokens...`);
+
+    try {
+      // Analyze all tokens and collect reports
+      const reportPromises = this.tokens.map(async (token) => {
+        try {
+          const whaleReport = await this.analyzer.analyzeToken(
+            token.address,
+            token.symbol,
+            false // Don't send to Telegram
+          );
+          // reportJson contains the full ReportData object
+          return whaleReport.reportJson;
+        } catch (error: any) {
+          console.error(`Failed to analyze ${token.symbol}:`, error.message);
+          return null;
+        }
+      });
+
+      const reports = (await Promise.all(reportPromises)).filter((r): r is any => r !== null);
+
+      if (reports.length === 0) {
+        return {
+          error: 'Failed to analyze any tokens',
+          trackedTokens: this.tokens.map(t => t.symbol)
+        };
+      }
+
+      // Generate portfolio dashboard
+      const { ReportGenerator } = await import('./services/report-generator.js');
+      const dashboard = ReportGenerator.generatePortfolioDashboard(reports);
+
+      console.log(`✅ Portfolio dashboard generated for ${reports.length}/${this.tokens.length} tokens`);
+
+      return {
+        success: true,
+        tokensAnalyzed: reports.length,
+        totalTokens: this.tokens.length,
+        markdown: dashboard
+      };
+    } catch (error: any) {
+      console.error('Portfolio generation error:', error);
+      return {
+        error: `Failed to generate portfolio: ${error.message}`
+      };
+    }
+  }
+
   /**
    * Action: Trigger immediate analysis for all tokens
    */
@@ -200,6 +252,11 @@ export class GameAgent {
         {
           name: 'getStatus',
           description: 'Get current status of the agent and tracked tokens',
+          parameters: []
+        },
+        {
+          name: 'getPortfolio',
+          description: 'Generate portfolio dashboard for all tracked tokens with opportunities and risk alerts',
           parameters: []
         }
       ],

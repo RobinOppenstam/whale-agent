@@ -278,6 +278,129 @@ ${data.signals.map(s => `- \`${s}\``).join('\n')}`;
   }
   
   /**
+   * Generate portfolio dashboard (multi-token summary)
+   */
+  static generatePortfolioDashboard(reports: ReportData[]): string {
+    if (reports.length === 0) {
+      return '# 🐋 Portfolio Dashboard\n\nNo tokens tracked.';
+    }
+
+    const timestamp = new Date().toLocaleString('en-US', {
+      timeZone: 'UTC',
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+
+    // Sort reports by risk score (highest first)
+    const sortedByRisk = [...reports].sort((a, b) => b.riskScore - a.riskScore);
+
+    // Sort by 24h price change
+    const sortedByChange = [...reports].sort((a, b) =>
+      b.metrics.priceChange24h - a.metrics.priceChange24h
+    );
+
+    // Count by risk level
+    const highRisk = reports.filter(r => r.riskScore >= 70).length;
+    const mediumRisk = reports.filter(r => r.riskScore >= 50 && r.riskScore < 70).length;
+    const lowRisk = reports.filter(r => r.riskScore < 50).length;
+
+    // Find opportunities (positive momentum + accumulation)
+    const opportunities = reports.filter(r =>
+      r.metrics.priceChange24h > 0 &&
+      r.accumulators.length > r.distributors.length
+    );
+
+    let dashboard = `# 🐋 Portfolio Dashboard
+**Generated:** ${timestamp} UTC
+**Tracking:** ${reports.length} token${reports.length !== 1 ? 's' : ''}
+
+---
+
+## 📊 Portfolio Overview
+
+**Risk Distribution:**
+- 🔴 High Risk (70+): ${highRisk}
+- 🟡 Medium Risk (50-69): ${mediumRisk}
+- 🟢 Low Risk (<50): ${lowRisk}
+
+**Opportunities Detected:** ${opportunities.length}
+
+---
+
+## 🔥 Hot Movers (24h)
+
+${sortedByChange.slice(0, 5).map((r, i) => {
+  const emoji = r.metrics.priceChange24h > 0 ? '🚀' : '📉';
+  const whaleActivity = r.accumulators.length > r.distributors.length ?
+    'Accumulation' : r.distributors.length > r.accumulators.length ?
+    'Distribution' : 'Neutral';
+  return `${i + 1}. **${r.tokenSymbol}**: ${this.formatPercentage(r.metrics.priceChange24h)} ${emoji}
+   - Whale Activity: ${whaleActivity}
+   - Risk: ${r.riskScore}/100 ${this.getRiskEmoji(r.riskScore)}`;
+}).join('\n\n')}
+
+---
+
+## ⚠️ Risk Alerts
+
+${sortedByRisk.filter(r => r.riskScore >= 60).length > 0 ?
+  sortedByRisk.filter(r => r.riskScore >= 60).map(r => {
+    const topConcern = r.concerns[0] || 'Monitor closely';
+    return `### ${r.tokenSymbol} - ${r.riskScore}/100 ${this.getRiskEmoji(r.riskScore)}
+- ${topConcern}
+- Top 10 concentration: ${r.currentSnapshot.top10Concentration.toFixed(2)}%
+- New whales: ${r.newWhales.length} | Exited: ${r.exitedWhales.length}`;
+  }).join('\n\n') :
+  '✅ No high-risk alerts at this time'
+}
+
+---
+
+## 💎 Opportunities
+
+${opportunities.length > 0 ?
+  opportunities.map(r => {
+    const momentum = r.metrics.priceChange24h > 5 ? 'Strong 🚀' :
+                     r.metrics.priceChange24h > 0 ? 'Positive 📈' : 'Neutral';
+    return `### ${r.tokenSymbol} - ${momentum}
+- Price (24h): ${this.formatPercentage(r.metrics.priceChange24h)}
+- Accumulators: ${r.accumulators.length} | Distributors: ${r.distributors.length}
+- Volume (24h): $${this.formatNumber(r.metrics.volume24h, 2)}
+- ${r.positiveIndicators[0] || 'Whale accumulation detected'}`;
+  }).join('\n\n') :
+  '⏳ No clear opportunities at this time'
+}
+
+---
+
+## 📈 Concentration Overview
+
+${reports.map(r => {
+  const trend = r.concentrationChange24h > 0 ? '📈' : r.concentrationChange24h < 0 ? '📉' : '➡️';
+  return `**${r.tokenSymbol}:** ${r.currentSnapshot.top10Concentration.toFixed(2)}% ${trend} (${this.formatChange(r.concentrationChange24h)} 24h)`;
+}).join('\n')}
+
+---
+
+## 🐋 Whale Activity Summary
+
+${reports.map(r => {
+  return `**${r.tokenSymbol}:**
+- New whales: ${r.newWhales.length} | Exited: ${r.exitedWhales.length}
+- Accumulating: ${r.accumulators.length} | Distributing: ${r.distributors.length}
+- Holders: ${r.currentSnapshot.totalHolders.toLocaleString()}`;
+}).join('\n\n')}
+
+---
+
+*💡 Tip: Use /analyze TOKEN to get detailed report for a specific token*
+
+${this.generateFooter()}`;
+
+    return dashboard;
+  }
+
+  /**
    * Generate footer
    */
   private static generateFooter(): string {

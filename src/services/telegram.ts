@@ -306,9 +306,14 @@ ${status.trackedTokens.map((t: any) => `• ${t.symbol} - <code>${t.address.subs
    * Convert markdown to Telegram HTML format
    */
   private markdownToTelegramHtml(markdown: string): string {
-    let html = markdown;
+    // Step 1: Escape HTML special characters first (before creating HTML tags)
+    let html = markdown
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
 
-    // Convert headers
+    // Step 2: Convert markdown to HTML (these will use the escaped text)
+    // Convert headers (working with escaped content)
     html = html.replace(/^### (.+)$/gm, '<b>$1</b>');
     html = html.replace(/^## (.+)$/gm, '\n<b><u>$1</u></b>');
     html = html.replace(/^# (.+)$/gm, '\n<b><u>🐋 $1</u></b>');
@@ -322,11 +327,6 @@ ${status.trackedTokens.map((t: any) => `• ${t.symbol} - <code>${t.address.subs
     // Convert horizontal rules to visual separator
     html = html.replace(/^---$/gm, '━━━━━━━━━━━━━━━━━━━━━━━');
     html = html.replace(/^=+$/gm, '━━━━━━━━━━━━━━━━━━━━━━━');
-
-    // Escape HTML special characters that aren't part of our tags
-    html = html.replace(/&(?!(amp|lt|gt|quot|#\d+);)/g, '&amp;');
-    html = html.replace(/<(?!\/?[biu]>|\/?(code|pre)>)/g, '&lt;');
-    html = html.replace(/(?<!<\/[biu])>(?!<)/g, '&gt;');
 
     return html;
   }

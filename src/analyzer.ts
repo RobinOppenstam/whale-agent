@@ -117,7 +117,7 @@ export class WhaleAnalyzer {
         metrics,
         chartHealth,
         currentSnapshot,
-        previousSnapshot,
+        previousSnapshot: previousSnapshot || undefined,
         newWhales,
         exitedWhales,
         accumulators,

@@ -195,16 +195,41 @@ export class GameAgent {
   
   /**
    * Action: Add a new token to track
+   * Symbol is optional - will be fetched from DexScreener if not provided
    */
-  addToken(address: string, symbol: string): any {
-    this.scheduler.addToken(address, symbol);
-    this.tokens.push({ address, symbol });
-    
-    return {
-      success: true,
-      message: `Added ${symbol} to tracking`,
-      trackedTokens: this.tokens.map(t => t.symbol)
-    };
+  async addToken(address: string, symbol?: string): Promise<any> {
+    try {
+      // If symbol not provided, fetch it from DexScreener
+      let tokenSymbol: string | undefined = symbol;
+      if (!tokenSymbol) {
+        console.log(`🔍 Fetching symbol for ${address} from DexScreener...`);
+        const { DexScreenerClient } = await import('./services/dexscreener.js');
+        const dexscreener = new DexScreenerClient();
+        const fetchedSymbol = await dexscreener.fetchTokenSymbol(address);
+
+        if (!fetchedSymbol) {
+          return {
+            error: `Failed to fetch token symbol for ${address}. Please provide symbol manually.`
+          };
+        }
+
+        tokenSymbol = fetchedSymbol;
+        console.log(`✅ Found symbol: ${tokenSymbol}`);
+      }
+
+      this.scheduler.addToken(address, tokenSymbol);
+      this.tokens.push({ address, symbol: tokenSymbol });
+
+      return {
+        success: true,
+        message: `Added ${tokenSymbol} (${address.substring(0, 10)}...) to tracking`,
+        trackedTokens: this.tokens.map(t => t.symbol)
+      };
+    } catch (error: any) {
+      return {
+        error: `Failed to add token: ${error.message}`
+      };
+    }
   }
   
   /**
@@ -268,8 +293,8 @@ export class GameAgent {
         },
         {
           name: 'addToken',
-          description: 'Add a new token to the tracking list',
-          parameters: ['address: string', 'symbol: string']
+          description: 'Add a new token to the tracking list (symbol auto-fetched from DexScreener if not provided)',
+          parameters: ['address: string', 'symbol?: string']
         },
         {
           name: 'removeToken',

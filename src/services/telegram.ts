@@ -5,7 +5,7 @@ export interface TelegramCommandHandler {
   getStatus(): any;
   getPortfolio(): Promise<any>;
   triggerAnalysis(): Promise<any>;
-  addToken(address: string, symbol: string): any;
+  addToken(address: string, symbol?: string): Promise<any>;
   removeToken(symbolOrAddress: string): any;
 }
 
@@ -33,7 +33,7 @@ export class TelegramService {
       { command: 'portfolio', description: 'Get portfolio dashboard for all tokens' },
       { command: 'analyze', description: 'Analyze a specific token (e.g., /analyze WIRE)' },
       { command: 'trigger', description: 'Trigger immediate analysis for all tokens' },
-      { command: 'add', description: 'Add a token to track (e.g., /add 0x123... SYMBOL)' },
+      { command: 'add', description: 'Add token to track (e.g., /add 0x123... or /add 0x123... SYMBOL)' },
       { command: 'remove', description: 'Remove a token from tracking (e.g., /remove WIRE)' }
     ]);
 
@@ -61,7 +61,7 @@ Welcome! I'm your AI whale tracking agent for Base network tokens.
 /portfolio - Get portfolio dashboard for all tokens
 /analyze SYMBOL - Analyze a specific token
 /trigger - Run analysis for all tokens now
-/add ADDRESS SYMBOL - Track a new token
+/add ADDRESS [SYMBOL] - Track a new token (symbol auto-detected)
 /remove SYMBOL - Stop tracking a token
 /help - Show this help message
 
@@ -92,8 +92,10 @@ Reports are sent automatically every 6 hours!
 
 <b>Actions:</b>
 /trigger - Manually trigger analysis for all tokens
-/add &lt;address&gt; &lt;symbol&gt; - Add new token to track
-  Example: <code>/add 0x123...abc TOKEN</code>
+/add &lt;address&gt; [symbol] - Add new token to track (symbol auto-detected)
+  Examples:
+  • <code>/add 0x123...abc</code> (auto-fetch symbol)
+  • <code>/add 0x123...abc TOKEN</code> (manual symbol)
 /remove &lt;token&gt; - Remove token from tracking
   Example: <code>/remove WIRE</code>
 
@@ -226,12 +228,12 @@ ${status.trackedTokens.map((t: any) => `• ${t.symbol} - <code>${t.address.subs
       if (msg.chat.id.toString() !== this.chatId) return;
 
       const address = match?.[1];
-      const symbol = match?.[2];
+      const symbol = match?.[2]; // Optional now
 
-      if (!address || !symbol) {
+      if (!address) {
         await this.bot.sendMessage(
           msg.chat.id,
-          '❌ Please provide both address and symbol\nExample: <code>/add 0x123...abc TOKEN</code>',
+          '❌ Please provide a token address\nExamples:\n• <code>/add 0x123...abc</code> (auto-fetch symbol)\n• <code>/add 0x123...abc TOKEN</code> (manual symbol)',
           { parse_mode: 'HTML' }
         );
         return;
@@ -243,12 +245,21 @@ ${status.trackedTokens.map((t: any) => `• ${t.symbol} - <code>${t.address.subs
           return;
         }
 
-        const result = this.commandHandler.addToken(address, symbol);
+        // Show loading message if symbol not provided
+        if (!symbol) {
+          await this.bot.sendMessage(msg.chat.id, '🔍 Fetching token symbol from DexScreener...');
+        }
 
-        await this.bot.sendMessage(
-          msg.chat.id,
-          `✅ ${result.message}\n\nTracked tokens: ${result.trackedTokens.join(', ')}`
-        );
+        const result = await this.commandHandler.addToken(address, symbol);
+
+        if (result.error) {
+          await this.bot.sendMessage(msg.chat.id, `❌ ${result.error}`);
+        } else {
+          await this.bot.sendMessage(
+            msg.chat.id,
+            `✅ ${result.message}\n\nTracked tokens: ${result.trackedTokens.join(', ')}`
+          );
+        }
       } catch (error: any) {
         await this.bot.sendMessage(msg.chat.id, `❌ Error: ${error.message}`);
       }

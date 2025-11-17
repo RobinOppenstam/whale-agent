@@ -93,27 +93,65 @@ export class DexScreenerClient {
   private chainId = 'base';
   
   /**
-   * Fetch token data from DexScreener
+   * Fetch token symbol from DexScreener
    */
-  async fetchTokenMetrics(tokenAddress: string): Promise<TokenMetrics | null> {
+  async fetchTokenSymbol(tokenAddress: string): Promise<string | null> {
     try {
       const url = `${this.baseUrl}/tokens/${tokenAddress}`;
       const response = await axios.get<DexScreenerResponse>(url);
-      
+
       if (!response.data.pairs || response.data.pairs.length === 0) {
         console.warn(`No pairs found for token ${tokenAddress}`);
         return null;
       }
-      
+
       // Find the Base pair with highest liquidity
       const basePairs = response.data.pairs.filter(p => p.chainId === this.chainId);
       if (basePairs.length === 0) {
         console.warn(`No Base pairs found for token ${tokenAddress}`);
         return null;
       }
-      
+
       const pair = basePairs.sort((a, b) => b.liquidity.usd - a.liquidity.usd)[0];
-      
+
+      // Return symbol from baseToken if it matches our address, otherwise quoteToken
+      const normalizedAddress = tokenAddress.toLowerCase();
+      if (pair.baseToken.address.toLowerCase() === normalizedAddress) {
+        return pair.baseToken.symbol;
+      } else if (pair.quoteToken.address.toLowerCase() === normalizedAddress) {
+        return pair.quoteToken.symbol;
+      }
+
+      // Default to baseToken symbol
+      return pair.baseToken.symbol;
+    } catch (error) {
+      console.error(`Error fetching token symbol from DexScreener for ${tokenAddress}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch token data from DexScreener
+   */
+  async fetchTokenMetrics(tokenAddress: string): Promise<TokenMetrics | null> {
+    try {
+      const url = `${this.baseUrl}/tokens/${tokenAddress}`;
+      const response = await axios.get<DexScreenerResponse>(url);
+
+      if (!response.data.pairs || response.data.pairs.length === 0) {
+        console.warn(`No pairs found for token ${tokenAddress}`);
+        return null;
+      }
+
+      // Find the Base pair with highest liquidity
+      const basePairs = response.data.pairs.filter(p => p.chainId === this.chainId);
+      if (basePairs.length === 0) {
+        console.warn(`No Base pairs found for token ${tokenAddress}`);
+        return null;
+      }
+
+      const pair = basePairs.sort((a, b) => b.liquidity.usd - a.liquidity.usd)[0];
+
       return this.transformPairData(pair, tokenAddress);
     } catch (error) {
       console.error(`Error fetching DexScreener data for ${tokenAddress}:`, error);

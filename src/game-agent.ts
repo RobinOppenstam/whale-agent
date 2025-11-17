@@ -194,8 +194,41 @@ export class GameAgent {
   }
   
   /**
+   * Initialize a newly added token with current data snapshot
+   * This creates the first database entries for trending analysis
+   */
+  private async initializeNewToken(address: string, symbol: string): Promise<void> {
+    console.log(`\n🔄 Initializing ${symbol} with current data snapshot...`);
+
+    try {
+      // Fetch and store current token metrics (for price trends)
+      const { DexScreenerClient } = await import('./services/dexscreener.js');
+      const dexscreener = new DexScreenerClient();
+
+      console.log('📊 Fetching current metrics from DexScreener...');
+      const metrics = await dexscreener.fetchTokenMetrics(address);
+
+      if (metrics) {
+        await this.analyzer['database'].storeTokenSnapshot(metrics);
+        console.log('✅ Token metrics snapshot stored');
+      }
+
+      // Note: Historical backfilling is not available via DexScreener API
+      // The agent will build historical data going forward through scheduled runs
+      console.log('💡 Historical data will accumulate as the agent runs scheduled analyses');
+      console.log(`   First trends will be available after 6+ hours of tracking\n`);
+
+    } catch (error: any) {
+      console.error(`⚠️  Failed to initialize ${symbol}:`, error.message);
+      console.log('   Token added to tracking, but initial snapshot failed');
+      console.log('   Data will be collected during next scheduled run\n');
+    }
+  }
+
+  /**
    * Action: Add a new token to track
    * Symbol is optional - will be fetched from DexScreener if not provided
+   * Automatically initializes the token with current data snapshot
    */
   async addToken(address: string, symbol?: string): Promise<any> {
     try {
@@ -217,12 +250,18 @@ export class GameAgent {
         console.log(`✅ Found symbol: ${tokenSymbol}`);
       }
 
+      // Add to scheduler and tokens list
       this.scheduler.addToken(address, tokenSymbol);
       this.tokens.push({ address, symbol: tokenSymbol });
 
+      // Initialize with current data snapshot (async, don't wait)
+      this.initializeNewToken(address, tokenSymbol).catch(err => {
+        console.error(`Background initialization failed for ${tokenSymbol}:`, err);
+      });
+
       return {
         success: true,
-        message: `Added ${tokenSymbol} (${address.substring(0, 10)}...) to tracking`,
+        message: `Added ${tokenSymbol} (${address.substring(0, 10)}...) to tracking. Initializing with current data...`,
         trackedTokens: this.tokens.map(t => t.symbol)
       };
     } catch (error: any) {

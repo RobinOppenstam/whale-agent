@@ -95,6 +95,7 @@ export class HolderDataClient {
 
     try {
       // Fetch token holder list from Blockscout
+      console.log(`Fetching from Blockscout: ${url}`);
       const response = await axios.default.get(url, {
         params: {
           items_count: limit
@@ -102,18 +103,35 @@ export class HolderDataClient {
         timeout: 15000
       });
 
+      console.log(`Blockscout response status: ${response.status}, items: ${response.data?.items?.length || 0}`);
+
       if (!response.data || !response.data.items) {
-        throw new Error('Invalid response from Blockscout API');
+        throw new Error(`Invalid response from Blockscout API. Status: ${response.status}, Has data: ${!!response.data}, Has items: ${!!response.data?.items}`);
       }
 
       const holders = response.data.items;
+      console.log(`✅ Blockscout returned ${holders.length} holders`);
 
-      // Get token info for total supply
-      const contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.rpcProvider);
-      const [totalSupplyRaw, decimals] = await Promise.all([
-        contract.totalSupply(),
-        contract.decimals()
-      ]);
+      // Get token info for total supply - use backup RPC if primary fails
+      let contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.rpcProvider);
+      let totalSupplyRaw, decimals;
+
+      try {
+        [totalSupplyRaw, decimals] = await Promise.all([
+          contract.totalSupply(),
+          contract.decimals()
+        ]);
+      } catch (rpcError) {
+        console.warn('Primary RPC failed, using backup RPC for token info');
+        if (!this.backupRpcProvider) {
+          throw new Error('Primary RPC failed and no backup RPC configured');
+        }
+        contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.backupRpcProvider);
+        [totalSupplyRaw, decimals] = await Promise.all([
+          contract.totalSupply(),
+          contract.decimals()
+        ]);
+      }
 
       const totalSupply = parseFloat(ethers.formatUnits(totalSupplyRaw, decimals));
 

@@ -54,8 +54,10 @@ export class WhaleAnalyzer {
       // 2. Fetch current holder data
       console.log('🐋 Fetching top 50 holder data...');
       const currentSnapshot = await this.holderClient.fetchTopHolders(tokenAddress, 50);
-      
+      console.log(`✅ Holder data fetched - Top holders: ${currentSnapshot.topHolders.length}`);
+
       // Store whale positions
+      console.log('💾 Storing whale positions in database...');
       await this.database.storeWhalePositions(currentSnapshot, metrics.priceUsd);
       console.log('✅ Whale positions stored');
       

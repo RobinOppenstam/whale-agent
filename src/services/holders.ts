@@ -1,6 +1,3 @@
-import { request, gql } from 'graphql-request';
-import { ethers } from 'ethers';
-
 export interface HolderData {
   address: string;
   balance: string; // Raw balance as string
@@ -19,312 +16,136 @@ export interface HolderSnapshot {
   top50Concentration: number;
 }
 
-// ERC20 ABI for balanceOf and totalSupply
-const ERC20_ABI = [
-  'function balanceOf(address owner) view returns (uint256)',
-  'function totalSupply() view returns (uint256)',
-  'function decimals() view returns (uint8)'
-];
-
 export class HolderDataClient {
-  private graphEndpoint: string;
-  private rpcProvider: ethers.JsonRpcProvider;
-  private backupRpcProvider?: ethers.JsonRpcProvider;
-
   constructor(
-    rpcUrl: string,
-    backupRpcUrl?: string,
-    graphApiKey?: string
+    rpcUrl?: string,       // Kept for backward compatibility but unused
+    backupRpcUrl?: string, // Kept for backward compatibility but unused
+    graphApiKey?: string   // Kept for backward compatibility but unused
   ) {
-    // The Graph endpoint for Base (example - adjust based on actual subgraph)
-    // You'll need to find or deploy a subgraph that indexes ERC20 holders on Base
-    this.graphEndpoint = graphApiKey
-      ? `https://gateway.thegraph.com/api/${graphApiKey}/subgraphs/id/BASE_HOLDER_SUBGRAPH_ID`
-      : 'https://api.thegraph.com/subgraphs/name/BASE_HOLDER_SUBGRAPH'; // Replace with actual subgraph
-
-    this.rpcProvider = new ethers.JsonRpcProvider(rpcUrl);
-    if (backupRpcUrl) {
-      this.backupRpcProvider = new ethers.JsonRpcProvider(backupRpcUrl);
-    }
+    console.log(`🔧 Initializing HolderDataClient - Using Blockscout API only`);
   }
   
   /**
-   * Fetch top holders using multiple data sources with fallback chain
+   * Fetch top holders using Blockscout API
+   * This is the primary and only data source for holder information
    */
   async fetchTopHolders(
     tokenAddress: string,
     limit: number = 50
   ): Promise<HolderSnapshot> {
-    // Try Blockscout first (free API for Base, no key needed)
-    try {
-      console.log(`Attempting to fetch holders from Blockscout for ${tokenAddress}...`);
-      return await this.fetchFromBasescan(tokenAddress, limit);
-    } catch (blockscoutError) {
-      console.warn('Blockscout query failed, trying The Graph:', blockscoutError);
-    }
+    console.log(`\n📊 Fetching top ${limit} holders for ${tokenAddress}...`);
 
-    // Try The Graph second
     try {
-      console.log(`Attempting to fetch holders from The Graph for ${tokenAddress}...`);
-      return await this.fetchFromGraph(tokenAddress, limit);
-    } catch (graphError) {
-      console.warn('The Graph query failed, falling back to RPC:', graphError);
-
-      try {
-        // Fallback to direct RPC (slowest, last resort)
-        return await this.fetchFromRPC(tokenAddress, limit);
-      } catch (rpcError) {
-        console.error('RPC fallback also failed:', rpcError);
-        throw new Error('Failed to fetch holder data from all sources (Basescan, The Graph, RPC)');
-      }
+      const snapshot = await this.fetchFromBlockscout(tokenAddress, limit);
+      console.log(`✅ Successfully fetched holder data for ${tokenAddress}`);
+      console.log(`   - Total holders: ${snapshot.totalHolders}`);
+      console.log(`   - Top 10 concentration: ${snapshot.top10Concentration}%`);
+      console.log(`   - Top 20 concentration: ${snapshot.top20Concentration}%`);
+      console.log(`   - Top 50 concentration: ${snapshot.top50Concentration}%\n`);
+      return snapshot;
+    } catch (error: any) {
+      console.error(`❌ Failed to fetch holder data from Blockscout: ${error.message}`);
+      throw new Error(`Failed to fetch holder data: ${error.message}`);
     }
   }
 
   /**
    * Fetch holders from Blockscout API (Base Chain Explorer)
-   * Note: Basescan merged with Etherscan, and tokenholderlist is a Pro feature
-   * Using free Blockscout API instead
+   * Free API, no key required
    */
-  private async fetchFromBasescan(
+  private async fetchFromBlockscout(
     tokenAddress: string,
     limit: number
   ): Promise<HolderSnapshot> {
     const axios = await import('axios');
-    // Base Blockscout API endpoint - free, no API key needed
-    const url = `https://base.blockscout.com/api/v2/tokens/${tokenAddress}/holders`;
+    const baseUrl = `https://base.blockscout.com/api/v2/tokens/${tokenAddress}`;
 
     try {
-      // Fetch token holder list from Blockscout
-      console.log(`Fetching from Blockscout: ${url}`);
-      const response = await axios.default.get(url, {
-        params: {
-          items_count: limit
-        },
-        timeout: 15000
-      });
+      // Fetch token info and holders in parallel
+      console.log(`🔍 Fetching token info and holders from Blockscout...`);
+      const [tokenInfoResponse, holdersResponse] = await Promise.all([
+        axios.default.get(baseUrl, { timeout: 15000 }),
+        axios.default.get(`${baseUrl}/holders`, {
+          params: { items_count: limit },
+          timeout: 15000
+        })
+      ]);
 
-      console.log(`Blockscout response status: ${response.status}, items: ${response.data?.items?.length || 0}`);
+      console.log(`✅ Blockscout responses received`);
+      console.log(`   - Token info: ${tokenInfoResponse.status}`);
+      console.log(`   - Holders: ${holdersResponse.status}, items: ${holdersResponse.data?.items?.length || 0}`);
 
-      if (!response.data || !response.data.items) {
-        throw new Error(`Invalid response from Blockscout API. Status: ${response.status}, Has data: ${!!response.data}, Has items: ${!!response.data?.items}`);
+      // Extract token info from Blockscout
+      const tokenInfo = tokenInfoResponse.data;
+      const decimals = parseInt(tokenInfo.decimals);
+      const totalSupplyRaw = tokenInfo.total_supply;
+      const holdersCount = parseInt(tokenInfo.holders_count || '0');
+
+      console.log(`📊 Token Info from Blockscout:`);
+      console.log(`   - Symbol: ${tokenInfo.symbol}`);
+      console.log(`   - Decimals: ${decimals}`);
+      console.log(`   - Total Supply (raw): ${totalSupplyRaw}`);
+      console.log(`   - Total Holders: ${holdersCount}`);
+
+      // Validate holders response
+      if (!holdersResponse.data || !holdersResponse.data.items) {
+        throw new Error(`Invalid holders response from Blockscout API`);
       }
 
-      const holders = response.data.items;
+      const holders = holdersResponse.data.items;
       console.log(`✅ Blockscout returned ${holders.length} holders`);
 
-      // Get token info for total supply - use backup RPC if primary fails
-      let contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.rpcProvider);
-      let totalSupplyRaw, decimals;
-
-      try {
-        [totalSupplyRaw, decimals] = await Promise.all([
-          contract.totalSupply(),
-          contract.decimals()
-        ]);
-      } catch (rpcError) {
-        console.warn('Primary RPC failed, using backup RPC for token info');
-        if (!this.backupRpcProvider) {
-          throw new Error('Primary RPC failed and no backup RPC configured');
-        }
-        contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.backupRpcProvider);
-        [totalSupplyRaw, decimals] = await Promise.all([
-          contract.totalSupply(),
-          contract.decimals()
-        ]);
-      }
-
-      const totalSupply = parseFloat(ethers.formatUnits(totalSupplyRaw, decimals));
+      // Calculate total supply in human-readable format
+      const totalSupply = parseFloat(totalSupplyRaw) / Math.pow(10, decimals);
+      console.log(`   - Total Supply (formatted): ${totalSupply.toLocaleString()}`);
 
       // Convert holder data from Blockscout format
+      console.log(`🔄 Processing ${holders.length} holders...`);
       const topHolders: HolderData[] = holders.slice(0, limit).map((h: any, index: number) => {
-        const balanceFormatted = parseFloat(h.value) / Math.pow(10, decimals);
+        // Handle BigInt values - convert to string first
+        const balanceStr = typeof h.value === 'bigint' ? h.value.toString() : String(h.value);
+        const balanceFormatted = parseFloat(balanceStr) / Math.pow(10, decimals);
+        const percentageOfSupply = (balanceFormatted / totalSupply) * 100;
+
         return {
           address: h.address.hash,
-          balance: h.value,
+          balance: balanceStr,
           balanceFormatted,
-          percentageOfSupply: (balanceFormatted / totalSupply) * 100,
+          percentageOfSupply,
           rank: index + 1
         };
       });
+      console.log(`✅ Processed ${topHolders.length} holders`);
+
+      // Calculate concentrations
+      const top10 = this.calculateConcentration(topHolders, 10);
+      const top20 = this.calculateConcentration(topHolders, 20);
+      const top50 = this.calculateConcentration(topHolders, 50);
+
+      console.log(`📊 Concentration calculated:`);
+      console.log(`   - Top 10: ${top10}%`);
+      console.log(`   - Top 20: ${top20}%`);
+      console.log(`   - Top 50: ${top50}%`);
 
       return {
         tokenAddress,
         timestamp: new Date(),
-        totalHolders: response.data.next_page_params ? 999999 : holders.length,
+        totalHolders: holdersCount,
         topHolders,
-        top10Concentration: this.calculateConcentration(topHolders, 10),
-        top20Concentration: this.calculateConcentration(topHolders, 20),
-        top50Concentration: this.calculateConcentration(topHolders, 50)
+        top10Concentration: top10,
+        top20Concentration: top20,
+        top50Concentration: top50
       };
     } catch (error: any) {
+      console.error(`❌ Blockscout API error:`, error.message);
+      if (error.response) {
+        console.error(`   - Status: ${error.response.status}`);
+        console.error(`   - Data:`, error.response.data);
+      }
       throw new Error(`Blockscout API error: ${error.response?.data?.message || error.message}`);
     }
   }
 
-  /**
-   * Fetch holders from The Graph
-   */
-  private async fetchFromGraph(
-    tokenAddress: string,
-    limit: number
-  ): Promise<HolderSnapshot> {
-    // GraphQL query to fetch token holders
-    // NOTE: This is a generic query - you'll need to adjust based on your actual subgraph schema
-    const query = gql`
-      query GetTokenHolders($tokenAddress: String!, $limit: Int!) {
-        token(id: $tokenAddress) {
-          totalSupply
-          holderCount
-          holders(first: $limit, orderBy: balance, orderDirection: desc) {
-            address
-            balance
-          }
-        }
-      }
-    `;
-    
-    const variables = {
-      tokenAddress: tokenAddress.toLowerCase(),
-      limit
-    };
-    
-    const data: any = await request(this.graphEndpoint, query, variables);
-    
-    if (!data.token) {
-      throw new Error('Token not found in The Graph');
-    }
-    
-    const totalSupply = parseFloat(data.token.totalSupply);
-    const topHolders: HolderData[] = data.token.holders.map((h: any, index: number) => {
-      const balance = parseFloat(h.balance);
-      return {
-        address: h.address,
-        balance: h.balance,
-        balanceFormatted: balance,
-        percentageOfSupply: (balance / totalSupply) * 100,
-        rank: index + 1
-      };
-    });
-    
-    return {
-      tokenAddress,
-      timestamp: new Date(),
-      totalHolders: data.token.holderCount,
-      topHolders,
-      top10Concentration: this.calculateConcentration(topHolders, 10),
-      top20Concentration: this.calculateConcentration(topHolders, 20),
-      top50Concentration: this.calculateConcentration(topHolders, 50)
-    };
-  }
-  
-  /**
-   * Fetch holders from RPC (direct blockchain queries)
-   * This is more intensive but works without a subgraph
-   */
-  private async fetchFromRPC(
-    tokenAddress: string,
-    limit: number
-  ): Promise<HolderSnapshot> {
-    console.log('Fetching holder data via RPC...');
-    
-    const contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.rpcProvider);
-    
-    try {
-      // Get total supply and decimals
-      const [totalSupplyRaw, decimals] = await Promise.all([
-        contract.totalSupply(),
-        contract.decimals()
-      ]);
-      
-      const totalSupply = parseFloat(ethers.formatUnits(totalSupplyRaw, decimals));
-      
-      // NOTE: Getting holder addresses via RPC is challenging without events indexing
-      // We need to either:
-      // 1. Listen to Transfer events and track addresses (slow, needs archival node)
-      // 2. Use a service like Moralis/Alchemy for holder lists
-      // 3. Maintain our own database of known holders
-      
-      // For now, we'll use a hybrid approach: get known whale addresses
-      // In production, you'd integrate with Moralis/Alchemy or index Transfer events
-      
-      const knownWhaleAddresses = await this.getKnownWhaleAddresses(tokenAddress);
-      
-      // Fetch balances for known addresses
-      const balancePromises = knownWhaleAddresses.map(async (address) => {
-        try {
-          const balance = await contract.balanceOf(address);
-          return {
-            address,
-            balance: balance.toString(),
-            balanceFormatted: parseFloat(ethers.formatUnits(balance, decimals)),
-            percentageOfSupply: 0 // Will calculate below
-          };
-        } catch (err) {
-          console.error(`Error fetching balance for ${address}:`, err);
-          return null;
-        }
-      });
-      
-      const balances = (await Promise.all(balancePromises))
-        .filter((b): b is NonNullable<typeof b> => b !== null)
-        .sort((a, b) => b.balanceFormatted - a.balanceFormatted)
-        .slice(0, limit);
-      
-      // Calculate percentages and ranks
-      const topHolders: HolderData[] = balances.map((holder, index) => ({
-        ...holder,
-        percentageOfSupply: (holder.balanceFormatted / totalSupply) * 100,
-        rank: index + 1
-      }));
-      
-      return {
-        tokenAddress,
-        timestamp: new Date(),
-        totalHolders: knownWhaleAddresses.length, // Approximate
-        topHolders,
-        top10Concentration: this.calculateConcentration(topHolders, 10),
-        top20Concentration: this.calculateConcentration(topHolders, 20),
-        top50Concentration: this.calculateConcentration(topHolders, 50)
-      };
-      
-    } catch (error) {
-      // Try backup RPC if available
-      if (this.backupRpcProvider) {
-        console.log('Primary RPC failed, trying backup...');
-        const backupContract = new ethers.Contract(
-          tokenAddress,
-          ERC20_ABI,
-          this.backupRpcProvider
-        );
-        // Retry with backup (simplified for brevity)
-        throw error;
-      }
-      throw error;
-    }
-  }
-  
-  /**
-   * Get known whale addresses for a token
-   * In production, this would:
-   * 1. Query Moralis/Alchemy for top holders
-   * 2. Use indexed Transfer events
-   * 3. Use our own database of tracked addresses
-   */
-  private async getKnownWhaleAddresses(tokenAddress: string): Promise<string[]> {
-    // Placeholder: In production, integrate with Moralis or similar
-    // For now, return empty array - you'd populate this with actual whale addresses
-    
-    // Option: Use Moralis API
-    // const response = await axios.get(
-    //   `https://deep-index.moralis.io/api/v2/erc20/${tokenAddress}/owners`,
-    //   { headers: { 'X-API-Key': process.env.MORALIS_API_KEY } }
-    // );
-    // return response.data.result.map(h => h.owner_address);
-    
-    console.warn('Using RPC without holder discovery - consider integrating Moralis/Alchemy');
-    return [];
-  }
-  
   /**
    * Calculate concentration percentage for top N holders
    */

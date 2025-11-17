@@ -31,7 +31,7 @@ export class TelegramService {
       { command: 'help', description: 'Show available commands' },
       { command: 'status', description: 'Get current status of tracked tokens' },
       { command: 'portfolio', description: 'Get portfolio dashboard for all tokens' },
-      { command: 'analyze', description: 'Analyze a specific token (e.g., /analyze WIRE)' },
+      { command: 'analyze', description: 'Analyze ANY Base token (symbol or 0x... address)' },
       { command: 'trigger', description: 'Trigger immediate analysis for all tokens' },
       { command: 'add', description: 'Add token to track (e.g., /add 0x123... or /add 0x123... SYMBOL)' },
       { command: 'remove', description: 'Remove a token from tracking (e.g., /remove WIRE)' }
@@ -59,7 +59,7 @@ Welcome! I'm your AI whale tracking agent for Base network tokens.
 <b>Available Commands:</b>
 /status - View tracked tokens and next run time
 /portfolio - Get portfolio dashboard for all tokens
-/analyze SYMBOL - Analyze a specific token
+/analyze SYMBOL or 0x... - Analyze any Base token (tracked or not)
 /trigger - Run analysis for all tokens now
 /add ADDRESS [SYMBOL] - Track a new token (symbol auto-detected)
 /remove SYMBOL - Stop tracking a token
@@ -87,8 +87,10 @@ Reports are sent automatically every 6 hours!
 <b>Queries:</b>
 /status - Show agent status and tracked tokens
 /portfolio - Get multi-token dashboard with opportunities & risks
-/analyze &lt;token&gt; - Get detailed analysis for a token
-  Example: <code>/analyze WIRE</code>
+/analyze &lt;symbol or address&gt; - Get detailed analysis for ANY Base token
+  Examples:
+  • <code>/analyze WIRE</code> (tracked token by symbol)
+  • <code>/analyze 0x6f769E65c14Ebd1f68817F5f1DcDb61Cfa2D6f7e</code> (any Base token)
 
 <b>Actions:</b>
 /trigger - Manually trigger analysis for all tokens
@@ -105,6 +107,8 @@ Reports are sent automatically every 6 hours!
 
 <b>Schedule:</b>
 Automatic analysis runs every 6 hours at :00
+
+<b>💡 Tip:</b> You can analyze any Base chain token, even if it's not tracked!
 `;
       await this.bot.sendMessage(msg.chat.id, helpMessage, { parse_mode: 'HTML' });
     });
@@ -173,7 +177,7 @@ ${status.trackedTokens.map((t: any) => `• ${t.symbol} - <code>${t.address.subs
       if (!tokenSymbol) {
         await this.bot.sendMessage(
           msg.chat.id,
-          '❌ Please provide a token symbol or address\nExample: <code>/analyze WIRE</code>',
+          '❌ Please provide a token symbol or address\nExamples:\n• <code>/analyze WIRE</code> (tracked token)\n• <code>/analyze 0x6f769E65c14Ebd1f68817F5f1DcDb61Cfa2D6f7e</code> (any Base token)',
           { parse_mode: 'HTML' }
         );
         return;

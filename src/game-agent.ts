@@ -64,30 +64,62 @@ export class GameAgent {
   
   /**
    * Query: Analyze a specific token on-demand
+   * Works with both tracked tokens (by symbol) and any Base chain token (by address)
    */
   async analyzeToken(tokenSymbolOrAddress: string): Promise<any> {
-    // Find token in tracked list
-    const token = this.tokens.find(t => 
-      t.symbol.toLowerCase() === tokenSymbolOrAddress.toLowerCase() ||
-      t.address.toLowerCase() === tokenSymbolOrAddress.toLowerCase()
-    );
-    
-    if (!token) {
-      return {
-        error: `Token ${tokenSymbolOrAddress} not found in tracked list`,
-        trackedTokens: this.tokens.map(t => t.symbol)
-      };
+    let tokenAddress: string;
+    let tokenSymbol: string;
+
+    // Check if input looks like an Ethereum address
+    const isAddress = /^0x[a-fA-F0-9]{40}$/.test(tokenSymbolOrAddress);
+
+    if (isAddress) {
+      // Input is an address - analyze any Base chain token
+      tokenAddress = tokenSymbolOrAddress;
+
+      // Try to fetch symbol from DexScreener
+      console.log(`🔍 Analyzing token by address: ${tokenAddress}`);
+      const { DexScreenerClient } = await import('./services/dexscreener.js');
+      const dexscreener = new DexScreenerClient();
+      const fetchedSymbol = await dexscreener.fetchTokenSymbol(tokenAddress);
+
+      if (!fetchedSymbol) {
+        return {
+          error: `Token not found on DexScreener. It may not be on Base chain or have no liquidity pools.`,
+          hint: `Try providing the symbol manually if you know it`
+        };
+      }
+
+      tokenSymbol = fetchedSymbol;
+      console.log(`✅ Found symbol: ${tokenSymbol}`);
+    } else {
+      // Input is a symbol - try to find in tracked tokens
+      const token = this.tokens.find(t =>
+        t.symbol.toLowerCase() === tokenSymbolOrAddress.toLowerCase()
+      );
+
+      if (!token) {
+        return {
+          error: `Token symbol "${tokenSymbolOrAddress}" not found in tracked list. To analyze any Base chain token, use its contract address (0x...) instead.`,
+          trackedTokens: this.tokens.map(t => t.symbol)
+        };
+      }
+
+      tokenAddress = token.address;
+      tokenSymbol = token.symbol;
     }
-    
+
+    // Perform analysis
     const report = await this.analyzer.analyzeToken(
-      token.address,
-      token.symbol,
+      tokenAddress,
+      tokenSymbol,
       false // Don't send to Telegram for on-demand queries
     );
-    
+
     return {
       success: true,
-      token: token.symbol,
+      token: tokenSymbol,
+      isTracked: this.tokens.some(t => t.address.toLowerCase() === tokenAddress.toLowerCase()),
       report: {
         timestamp: report.reportTimestamp,
         riskScore: report.riskScore,
@@ -369,8 +401,8 @@ export class GameAgent {
       queries: [
         {
           name: 'analyzeToken',
-          description: 'Analyze a specific token and get comprehensive whale report',
-          parameters: ['tokenSymbolOrAddress: string']
+          description: 'Analyze ANY Base chain token (tracked or not) and get comprehensive whale report. Use token symbol for tracked tokens, or contract address (0x...) for any Base token. First-time analysis may have limited trend data.',
+          parameters: ['tokenSymbolOrAddress: string (symbol or 0x... address)']
         },
         {
           name: 'getStatus',

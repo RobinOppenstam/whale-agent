@@ -10,35 +10,67 @@ export class TelegramService {
   }
   
   /**
-   * Send markdown report to personal chat
+   * Send report to personal chat
    */
-  async sendReport(markdown: string, tokenSymbol: string): Promise<void> {
+  async sendReport(reportText: string, tokenSymbol: string): Promise<void> {
     try {
+      // Convert markdown to Telegram HTML format
+      const htmlReport = this.markdownToTelegramHtml(reportText);
+
       // Telegram has a 4096 character limit per message
       // Split long reports into multiple messages
-      const chunks = this.splitMessage(markdown, 4000);
-      
+      const chunks = this.splitMessage(htmlReport, 4000);
+
       for (let i = 0; i < chunks.length; i++) {
         await this.bot.sendMessage(
           this.chatId,
           chunks[i],
           {
-            parse_mode: 'Markdown',
+            parse_mode: 'HTML',
             disable_web_page_preview: true
           }
         );
-        
+
         // Small delay between messages to avoid rate limits
         if (i < chunks.length - 1) {
           await this.delay(500);
         }
       }
-      
+
       console.log(`✅ Report sent to Telegram for ${tokenSymbol}`);
     } catch (error) {
       console.error('Error sending Telegram message:', error);
       throw error;
     }
+  }
+
+  /**
+   * Convert markdown to Telegram HTML format
+   */
+  private markdownToTelegramHtml(markdown: string): string {
+    let html = markdown;
+
+    // Convert headers
+    html = html.replace(/^### (.+)$/gm, '<b>$1</b>');
+    html = html.replace(/^## (.+)$/gm, '\n<b><u>$1</u></b>');
+    html = html.replace(/^# (.+)$/gm, '\n<b><u>🐋 $1</u></b>');
+
+    // Convert bold
+    html = html.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+
+    // Convert code/monospace
+    html = html.replace(/`(.+?)`/g, '<code>$1</code>');
+
+    // Convert horizontal rules to visual separator
+    html = html.replace(/^---$/gm, '━━━━━━━━━━━━━━━━━━━━━━━');
+    html = html.replace(/^=+$/gm, '━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // Escape HTML special characters that aren't part of our tags
+    html = html.replace(/&(?!(amp|lt|gt|quot|#\d+);)/g, '&amp;');
+    html = html.replace(/<(?!\/?[biu]>|\/?(code|pre)>)/g, '&lt;');
+    html = html.replace(/(?<!<\/[biu])>(?!<)/g, '&gt;');
+
+    return html;
   }
   
   /**
@@ -46,8 +78,8 @@ export class TelegramService {
    */
   async sendAlert(message: string): Promise<void> {
     try {
-      await this.bot.sendMessage(this.chatId, `🚨 *ALERT*\n\n${message}`, {
-        parse_mode: 'Markdown'
+      await this.bot.sendMessage(this.chatId, `🚨 <b>ALERT</b>\n\n${message}`, {
+        parse_mode: 'HTML'
       });
     } catch (error) {
       console.error('Error sending Telegram alert:', error);

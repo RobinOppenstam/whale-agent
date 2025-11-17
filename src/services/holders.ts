@@ -30,7 +30,6 @@ export class HolderDataClient {
   private graphEndpoint: string;
   private rpcProvider: ethers.JsonRpcProvider;
   private backupRpcProvider?: ethers.JsonRpcProvider;
-  private basescanApiKey?: string;
 
   constructor(
     rpcUrl: string,
@@ -47,9 +46,6 @@ export class HolderDataClient {
     if (backupRpcUrl) {
       this.backupRpcProvider = new ethers.JsonRpcProvider(backupRpcUrl);
     }
-
-    // Basescan API key for holder data
-    this.basescanApiKey = process.env.BASESCAN_API_KEY;
   }
   
   /**
@@ -59,14 +55,12 @@ export class HolderDataClient {
     tokenAddress: string,
     limit: number = 50
   ): Promise<HolderSnapshot> {
-    // Try Basescan first (fastest and most reliable for Base)
-    if (this.basescanApiKey) {
-      try {
-        console.log(`Attempting to fetch holders from Basescan for ${tokenAddress}...`);
-        return await this.fetchFromBasescan(tokenAddress, limit);
-      } catch (basescanError) {
-        console.warn('Basescan query failed, trying The Graph:', basescanError);
-      }
+    // Try Blockscout first (free API for Base, no key needed)
+    try {
+      console.log(`Attempting to fetch holders from Blockscout for ${tokenAddress}...`);
+      return await this.fetchFromBasescan(tokenAddress, limit);
+    } catch (blockscoutError) {
+      console.warn('Blockscout query failed, trying The Graph:', blockscoutError);
     }
 
     // Try The Graph second
@@ -87,67 +81,66 @@ export class HolderDataClient {
   }
 
   /**
-   * Fetch holders from Basescan API
+   * Fetch holders from Blockscout API (Base Chain Explorer)
+   * Note: Basescan merged with Etherscan, and tokenholderlist is a Pro feature
+   * Using free Blockscout API instead
    */
   private async fetchFromBasescan(
     tokenAddress: string,
     limit: number
   ): Promise<HolderSnapshot> {
-    if (!this.basescanApiKey) {
-      throw new Error('Basescan API key not configured');
-    }
-
     const axios = await import('axios');
-    const url = `https://api.basescan.org/api`;
+    // Base Blockscout API endpoint - free, no API key needed
+    const url = `https://base.blockscout.com/api/v2/tokens/${tokenAddress}/holders`;
 
-    // Fetch token holder list
-    const response = await axios.default.get(url, {
-      params: {
-        module: 'token',
-        action: 'tokenholderlist',
-        contractaddress: tokenAddress,
-        page: 1,
-        offset: limit,
-        apikey: this.basescanApiKey
+    try {
+      // Fetch token holder list from Blockscout
+      const response = await axios.default.get(url, {
+        params: {
+          items_count: limit
+        },
+        timeout: 15000
+      });
+
+      if (!response.data || !response.data.items) {
+        throw new Error('Invalid response from Blockscout API');
       }
-    });
 
-    if (response.data.status !== '1') {
-      throw new Error(`Basescan API error: ${response.data.message}`);
-    }
+      const holders = response.data.items;
 
-    const holders = response.data.result;
+      // Get token info for total supply
+      const contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.rpcProvider);
+      const [totalSupplyRaw, decimals] = await Promise.all([
+        contract.totalSupply(),
+        contract.decimals()
+      ]);
 
-    // Get token info for total supply
-    const contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.rpcProvider);
-    const [totalSupplyRaw, decimals] = await Promise.all([
-      contract.totalSupply(),
-      contract.decimals()
-    ]);
+      const totalSupply = parseFloat(ethers.formatUnits(totalSupplyRaw, decimals));
 
-    const totalSupply = parseFloat(ethers.formatUnits(totalSupplyRaw, decimals));
+      // Convert holder data from Blockscout format
+      const topHolders: HolderData[] = holders.slice(0, limit).map((h: any, index: number) => {
+        const balanceFormatted = parseFloat(h.value) / Math.pow(10, decimals);
+        return {
+          address: h.address.hash,
+          balance: h.value,
+          balanceFormatted,
+          percentageOfSupply: (balanceFormatted / totalSupply) * 100,
+          rank: index + 1
+        };
+      });
 
-    // Convert holder data
-    const topHolders: HolderData[] = holders.slice(0, limit).map((h: any, index: number) => {
-      const balanceFormatted = parseFloat(ethers.formatUnits(h.TokenHolderQuantity, decimals));
       return {
-        address: h.TokenHolderAddress,
-        balance: h.TokenHolderQuantity,
-        balanceFormatted,
-        percentageOfSupply: (balanceFormatted / totalSupply) * 100,
-        rank: index + 1
+        tokenAddress,
+        timestamp: new Date(),
+        totalHolders: response.data.next_page_params ? 999999 : holders.length,
+        topHolders,
+        top10Concentration: this.calculateConcentration(topHolders, 10),
+        top20Concentration: this.calculateConcentration(topHolders, 20),
+        top50Concentration: this.calculateConcentration(topHolders, 50)
       };
-    });
-
-    return {
-      tokenAddress,
-      timestamp: new Date(),
-      totalHolders: holders.length,
-      topHolders,
-      top10Concentration: this.calculateConcentration(topHolders, 10),
-      top20Concentration: this.calculateConcentration(topHolders, 20),
-      top50Concentration: this.calculateConcentration(topHolders, 50)
-    };
+    } catch (error: any) {
+      throw new Error(`Blockscout API error: ${error.response?.data?.message || error.message}`);
+    }
   }
 
   /**

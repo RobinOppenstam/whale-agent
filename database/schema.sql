@@ -59,16 +59,16 @@ CREATE TABLE IF NOT EXISTS whale_positions (
     token_address TEXT NOT NULL,
     wallet_address TEXT NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    
-    balance DECIMAL(30, 10),
-    percentage_of_supply DECIMAL(5, 4),
+
+    balance TEXT, -- Raw balance as string to handle very large numbers
+    percentage_of_supply DECIMAL(10, 6),
     holder_rank INTEGER,
     value_usd DECIMAL(20, 2),
-    
+
     -- Track if this is a new or exiting whale
     is_new_whale BOOLEAN DEFAULT FALSE,
     is_exiting BOOLEAN DEFAULT FALSE,
-    
+
     UNIQUE(token_address, wallet_address, timestamp)
 );
 
@@ -79,16 +79,16 @@ CREATE TABLE IF NOT EXISTS whale_transactions (
     timestamp TIMESTAMPTZ NOT NULL,
     block_number BIGINT,
     transaction_hash TEXT UNIQUE,
-    
+
     wallet_address TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('buy', 'sell', 'transfer')),
-    
-    amount_tokens DECIMAL(30, 10),
+
+    amount_tokens TEXT, -- Raw amount as string to handle very large numbers
     amount_usd DECIMAL(20, 2),
-    percentage_of_supply DECIMAL(5, 4),
-    
-    wallet_balance_before DECIMAL(30, 10),
-    wallet_balance_after DECIMAL(30, 10),
+    percentage_of_supply DECIMAL(10, 6),
+
+    wallet_balance_before TEXT,
+    wallet_balance_after TEXT,
     wallet_rank_after INTEGER
 );
 

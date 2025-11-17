@@ -16,6 +16,19 @@ export interface HolderSnapshot {
   top50Concentration: number;
 }
 
+export interface WhaleTransaction {
+  transactionHash: string;
+  blockNumber: number;
+  timestamp: Date;
+  from: string;
+  to: string;
+  value: string; // Raw value
+  valueFormatted: number;
+  percentageOfSupply: number;
+  type: 'buy' | 'sell' | 'transfer';
+  method?: string;
+}
+
 export class HolderDataClient {
   constructor(
     rpcUrl?: string,       // Kept for backward compatibility but unused
@@ -147,13 +160,127 @@ export class HolderDataClient {
   }
 
   /**
+   * Fetch recent whale transactions from Blockscout
+   * Only returns transactions above the whale threshold (default 1% of supply)
+   */
+  async fetchWhaleTransactions(
+    tokenAddress: string,
+    hoursBack: number = 6,
+    whaleThresholdPercent: number = 1.0
+  ): Promise<WhaleTransaction[]> {
+    const axios = await import('axios');
+    const baseUrl = `https://base.blockscout.com/api/v2/tokens/${tokenAddress}`;
+
+    try {
+      console.log(`\n🐋 Fetching whale transactions from last ${hoursBack} hours...`);
+
+      // First, get token info for total supply
+      const tokenInfoResponse = await axios.default.get(baseUrl, { timeout: 15000 });
+      const tokenInfo = tokenInfoResponse.data;
+      const decimals = parseInt(tokenInfo.decimals);
+      const totalSupplyRaw = tokenInfo.total_supply;
+      const totalSupply = parseFloat(totalSupplyRaw) / Math.pow(10, decimals);
+
+      console.log(`📊 Total Supply: ${totalSupply.toLocaleString()}`);
+      console.log(`🎯 Whale threshold: ${whaleThresholdPercent}% = ${(totalSupply * whaleThresholdPercent / 100).toLocaleString()} tokens`);
+
+      // Fetch recent transfers
+      const transfersResponse = await axios.default.get(`${baseUrl}/transfers`, {
+        timeout: 15000
+      });
+
+      if (!transfersResponse.data || !transfersResponse.data.items) {
+        throw new Error('Invalid transfers response from Blockscout');
+      }
+
+      const transfers = transfersResponse.data.items;
+      console.log(`📥 Fetched ${transfers.length} recent transfers`);
+
+      // Calculate cutoff time
+      const cutoffTime = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
+
+      // Filter and process whale transactions
+      const whaleTransactions: WhaleTransaction[] = [];
+
+      for (const transfer of transfers) {
+        const timestamp = new Date(transfer.timestamp);
+
+        // Skip if outside time window
+        if (timestamp < cutoffTime) continue;
+
+        // Calculate token amount
+        const valueRaw = transfer.total?.value || '0';
+        const valueFormatted = parseFloat(valueRaw) / Math.pow(10, decimals);
+        const percentageOfSupply = (valueFormatted / totalSupply) * 100;
+
+        // Only include if above whale threshold
+        if (percentageOfSupply < whaleThresholdPercent) continue;
+
+        // Determine transaction type (simplified)
+        let txType: 'buy' | 'sell' | 'transfer' = 'transfer';
+        const fromAddr = transfer.from?.hash?.toLowerCase() || '';
+        const toAddr = transfer.to?.hash?.toLowerCase() || '';
+
+        // Common DEX pool addresses on Base (you can expand this)
+        const dexPools = [
+          '0x8ffd336d457ada04a2d5112f8f0c1f1a84577f2f', // Uniswap WIRE/VIRTUAL pool
+          '0xc7254af5152f875651790667ec65e760461db3d5'  // Aerodrome pool
+        ];
+
+        if (dexPools.includes(fromAddr)) {
+          txType = 'buy';
+        } else if (dexPools.includes(toAddr)) {
+          txType = 'sell';
+        }
+
+        whaleTransactions.push({
+          transactionHash: transfer.transaction_hash,
+          blockNumber: transfer.block_number,
+          timestamp,
+          from: transfer.from?.hash || '',
+          to: transfer.to?.hash || '',
+          value: valueRaw,
+          valueFormatted,
+          percentageOfSupply,
+          type: txType,
+          method: transfer.method
+        });
+      }
+
+      console.log(`✅ Found ${whaleTransactions.length} whale transactions (>${whaleThresholdPercent}% of supply)`);
+
+      // Sort by value descending
+      whaleTransactions.sort((a, b) => b.valueFormatted - a.valueFormatted);
+
+      // Log top 5 whale transactions
+      if (whaleTransactions.length > 0) {
+        console.log(`\n📊 Top whale transactions:`);
+        whaleTransactions.slice(0, 5).forEach((tx, i) => {
+          console.log(`   ${i + 1}. ${tx.type.toUpperCase()} - ${tx.percentageOfSupply.toFixed(2)}% (${tx.valueFormatted.toLocaleString()} tokens)`);
+          console.log(`      Hash: ${tx.transactionHash.substring(0, 20)}...`);
+        });
+      }
+
+      return whaleTransactions;
+
+    } catch (error: any) {
+      console.error(`❌ Failed to fetch whale transactions:`, error.message);
+      if (error.response) {
+        console.error(`   - Status: ${error.response.status}`);
+      }
+      // Return empty array instead of throwing - whale transactions are optional
+      return [];
+    }
+  }
+
+  /**
    * Calculate concentration percentage for top N holders
    */
   private calculateConcentration(holders: HolderData[], topN: number): number {
     const concentration = holders
       .slice(0, topN)
       .reduce((sum, h) => sum + h.percentageOfSupply, 0);
-    
+
     return Math.round(concentration * 100) / 100;
   }
   

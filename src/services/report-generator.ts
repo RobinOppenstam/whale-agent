@@ -1,19 +1,20 @@
 import { TokenMetrics, DexScreenerClient } from './dexscreener.js';
-import { HolderSnapshot, HolderData } from './holders.js';
+import { HolderSnapshot, HolderData, WhaleTransaction } from './holders.js';
 
 export interface ReportData {
   tokenAddress: string;
   tokenSymbol: string;
   timestamp: Date;
-  
+
   // Price & Volume
   metrics: TokenMetrics;
   chartHealth: ReturnType<typeof DexScreenerClient.analyzeChartHealth>;
-  
+
   // Whale data
   currentSnapshot: HolderSnapshot;
   previousSnapshot?: HolderSnapshot;
-  
+  whaleTransactions?: WhaleTransaction[];
+
   // Changes
   newWhales: HolderData[];
   exitedWhales: HolderData[];
@@ -174,7 +175,18 @@ ${data.distributors.slice(0, 5).map(d =>
       section += `\n\n### 📉 Top Distributors (6h)
 - No significant distribution detected`;
     }
-    
+
+    // Large whale transactions
+    if (data.whaleTransactions && data.whaleTransactions.length > 0) {
+      section += `\n\n### 💸 Large Transactions (>1% of supply)
+${data.whaleTransactions.slice(0, 10).map(tx => {
+  const typeEmoji = tx.type === 'buy' ? '🟢' : tx.type === 'sell' ? '🔴' : '🔄';
+  const timestamp = tx.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  return `- ${typeEmoji} **${tx.type.toUpperCase()}** - ${tx.percentageOfSupply.toFixed(2)}% (${tx.valueFormatted.toLocaleString()} tokens) at ${timestamp}
+  \`${this.shortenAddress(tx.transactionHash)}\``;
+}).join('\n')}`;
+    }
+
     return section;
   }
   

@@ -56,10 +56,24 @@ export class WhaleAnalyzer {
       const currentSnapshot = await this.holderClient.fetchTopHolders(tokenAddress, 50);
       console.log(`✅ Holder data fetched - Top holders: ${currentSnapshot.topHolders.length}`);
 
+      // 2.5 Fetch recent whale transactions
+      console.log('💸 Fetching recent whale transactions...');
+      const whaleTransactions = await this.holderClient.fetchWhaleTransactions(
+        tokenAddress,
+        6, // Last 6 hours
+        parseFloat(process.env.WHALE_THRESHOLD_PERCENTAGE || '1.0')
+      );
+      console.log(`✅ Whale transactions fetched: ${whaleTransactions.length} large transfers`);
+
       // Store whale positions
       console.log('💾 Storing whale positions in database...');
       await this.database.storeWhalePositions(currentSnapshot, metrics.priceUsd);
       console.log('✅ Whale positions stored');
+
+      // Store whale transactions if any
+      if (whaleTransactions.length > 0) {
+        console.log(`💾 Including ${whaleTransactions.length} whale transactions in report...`);
+      }
       
       // 3. Get previous snapshot (6h ago)
       console.log('🕐 Retrieving previous snapshot for comparison...');
@@ -120,6 +134,7 @@ export class WhaleAnalyzer {
         chartHealth,
         currentSnapshot,
         previousSnapshot: previousSnapshot || undefined,
+        whaleTransactions: whaleTransactions.length > 0 ? whaleTransactions : undefined,
         newWhales,
         exitedWhales,
         accumulators,

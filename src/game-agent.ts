@@ -232,6 +232,19 @@ export class GameAgent {
    */
   async addToken(address: string, symbol?: string): Promise<any> {
     try {
+      // Check if token is already tracked
+      const normalizedAddress = address.toLowerCase();
+      const existingToken = this.tokens.find(t =>
+        t.address.toLowerCase() === normalizedAddress
+      );
+
+      if (existingToken) {
+        return {
+          error: `Token ${existingToken.symbol} (${address.substring(0, 10)}...) is already being tracked`,
+          trackedTokens: this.tokens.map(t => t.symbol)
+        };
+      }
+
       // If symbol not provided, fetch it from DexScreener
       let tokenSymbol: string | undefined = symbol;
       if (!tokenSymbol) {
@@ -275,15 +288,61 @@ export class GameAgent {
    * Action: Remove a token from tracking
    */
   removeToken(symbolOrAddress: string): any {
+    const initialLength = this.tokens.length;
+
     this.scheduler.removeToken(symbolOrAddress);
     this.tokens = this.tokens.filter(t =>
       t.symbol.toLowerCase() !== symbolOrAddress.toLowerCase() &&
       t.address.toLowerCase() !== symbolOrAddress.toLowerCase()
     );
-    
+
+    const removedCount = initialLength - this.tokens.length;
+
+    if (removedCount === 0) {
+      return {
+        error: `Token ${symbolOrAddress} not found in tracking list`,
+        trackedTokens: this.tokens.map(t => t.symbol)
+      };
+    }
+
     return {
       success: true,
-      message: `Removed ${symbolOrAddress} from tracking`,
+      message: `Removed ${removedCount > 1 ? removedCount + ' instances of ' : ''}${symbolOrAddress} from tracking`,
+      trackedTokens: this.tokens.map(t => t.symbol)
+    };
+  }
+
+  /**
+   * Utility: Remove duplicate tokens from tracking list
+   */
+  removeDuplicates(): any {
+    const seen = new Set<string>();
+    const duplicates: string[] = [];
+    const initialLength = this.tokens.length;
+
+    this.tokens = this.tokens.filter(t => {
+      const key = t.address.toLowerCase();
+      if (seen.has(key)) {
+        duplicates.push(t.symbol);
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+
+    const removedCount = initialLength - this.tokens.length;
+
+    // Also clean up scheduler
+    const uniqueTokens = Array.from(seen).map(addr => {
+      const token = this.tokens.find(t => t.address.toLowerCase() === addr);
+      return token!;
+    });
+
+    return {
+      success: true,
+      message: removedCount > 0
+        ? `Removed ${removedCount} duplicate token(s): ${[...new Set(duplicates)].join(', ')}`
+        : 'No duplicates found',
       trackedTokens: this.tokens.map(t => t.symbol)
     };
   }

@@ -30,7 +30,8 @@ export class HolderDataClient {
   private graphEndpoint: string;
   private rpcProvider: ethers.JsonRpcProvider;
   private backupRpcProvider?: ethers.JsonRpcProvider;
-  
+  private basescanApiKey?: string;
+
   constructor(
     rpcUrl: string,
     backupRpcUrl?: string,
@@ -38,40 +39,117 @@ export class HolderDataClient {
   ) {
     // The Graph endpoint for Base (example - adjust based on actual subgraph)
     // You'll need to find or deploy a subgraph that indexes ERC20 holders on Base
-    this.graphEndpoint = graphApiKey 
+    this.graphEndpoint = graphApiKey
       ? `https://gateway.thegraph.com/api/${graphApiKey}/subgraphs/id/BASE_HOLDER_SUBGRAPH_ID`
       : 'https://api.thegraph.com/subgraphs/name/BASE_HOLDER_SUBGRAPH'; // Replace with actual subgraph
-    
+
     this.rpcProvider = new ethers.JsonRpcProvider(rpcUrl);
     if (backupRpcUrl) {
       this.backupRpcProvider = new ethers.JsonRpcProvider(backupRpcUrl);
     }
+
+    // Basescan API key for holder data
+    this.basescanApiKey = process.env.BASESCAN_API_KEY;
   }
   
   /**
-   * Fetch top holders using The Graph with RPC fallback
+   * Fetch top holders using multiple data sources with fallback chain
    */
   async fetchTopHolders(
     tokenAddress: string,
     limit: number = 50
   ): Promise<HolderSnapshot> {
+    // Try Basescan first (fastest and most reliable for Base)
+    if (this.basescanApiKey) {
+      try {
+        console.log(`Attempting to fetch holders from Basescan for ${tokenAddress}...`);
+        return await this.fetchFromBasescan(tokenAddress, limit);
+      } catch (basescanError) {
+        console.warn('Basescan query failed, trying The Graph:', basescanError);
+      }
+    }
+
+    // Try The Graph second
     try {
-      // Try The Graph first
       console.log(`Attempting to fetch holders from The Graph for ${tokenAddress}...`);
       return await this.fetchFromGraph(tokenAddress, limit);
     } catch (graphError) {
       console.warn('The Graph query failed, falling back to RPC:', graphError);
-      
+
       try {
-        // Fallback to direct RPC
+        // Fallback to direct RPC (slowest, last resort)
         return await this.fetchFromRPC(tokenAddress, limit);
       } catch (rpcError) {
         console.error('RPC fallback also failed:', rpcError);
-        throw new Error('Failed to fetch holder data from both The Graph and RPC');
+        throw new Error('Failed to fetch holder data from all sources (Basescan, The Graph, RPC)');
       }
     }
   }
-  
+
+  /**
+   * Fetch holders from Basescan API
+   */
+  private async fetchFromBasescan(
+    tokenAddress: string,
+    limit: number
+  ): Promise<HolderSnapshot> {
+    if (!this.basescanApiKey) {
+      throw new Error('Basescan API key not configured');
+    }
+
+    const axios = await import('axios');
+    const url = `https://api.basescan.org/api`;
+
+    // Fetch token holder list
+    const response = await axios.default.get(url, {
+      params: {
+        module: 'token',
+        action: 'tokenholderlist',
+        contractaddress: tokenAddress,
+        page: 1,
+        offset: limit,
+        apikey: this.basescanApiKey
+      }
+    });
+
+    if (response.data.status !== '1') {
+      throw new Error(`Basescan API error: ${response.data.message}`);
+    }
+
+    const holders = response.data.result;
+
+    // Get token info for total supply
+    const contract = new ethers.Contract(tokenAddress, ERC20_ABI, this.rpcProvider);
+    const [totalSupplyRaw, decimals] = await Promise.all([
+      contract.totalSupply(),
+      contract.decimals()
+    ]);
+
+    const totalSupply = parseFloat(ethers.formatUnits(totalSupplyRaw, decimals));
+
+    // Convert holder data
+    const topHolders: HolderData[] = holders.slice(0, limit).map((h: any, index: number) => {
+      const balanceFormatted = parseFloat(ethers.formatUnits(h.TokenHolderQuantity, decimals));
+      return {
+        address: h.TokenHolderAddress,
+        balance: h.TokenHolderQuantity,
+        balanceFormatted,
+        percentageOfSupply: (balanceFormatted / totalSupply) * 100,
+        rank: index + 1
+      };
+    });
+
+    return {
+      tokenAddress,
+      timestamp: new Date(),
+      totalHolders: holders.length,
+      topHolders,
+      top10Concentration: this.calculateConcentration(topHolders, 10),
+      top20Concentration: this.calculateConcentration(topHolders, 20),
+      top50Concentration: this.calculateConcentration(topHolders, 50)
+    };
+  }
+
   /**
    * Fetch holders from The Graph
    */

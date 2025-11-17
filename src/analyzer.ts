@@ -2,7 +2,7 @@ import { DexScreenerClient, TokenMetrics } from './services/dexscreener.js';
 import { HolderDataClient, HolderSnapshot } from './services/holders.js';
 import { DatabaseService, WhaleReport } from './services/database.js';
 import { ReportGenerator, ReportData } from './services/report-generator.js';
-import { TelegramService } from './services/telegram.js';
+import { TelegramService, TelegramCommandHandler } from './services/telegram.js';
 
 export class WhaleAnalyzer {
   private dexscreener: DexScreenerClient;
@@ -341,7 +341,7 @@ export class WhaleAnalyzer {
    */
   async testConnections(): Promise<void> {
     console.log('🔧 Testing connections...\n');
-    
+
     // Test Telegram
     if (this.telegram) {
       const telegramOk = await this.telegram.testConnection();
@@ -349,7 +349,26 @@ export class WhaleAnalyzer {
     } else {
       console.log('Telegram: ⏭️  Not configured');
     }
-    
+
     console.log('\n✅ Connection tests complete');
+  }
+
+  /**
+   * Initialize Telegram bot commands with the GameAgent as handler
+   */
+  async initializeTelegramCommands(commandHandler: TelegramCommandHandler): Promise<void> {
+    if (this.telegram) {
+      await this.telegram.initialize(commandHandler);
+      console.log('✅ Telegram bot commands initialized');
+    }
+  }
+
+  /**
+   * Stop Telegram bot polling
+   */
+  stopTelegramPolling(): void {
+    if (this.telegram) {
+      this.telegram.stopPolling();
+    }
   }
 }

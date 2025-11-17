@@ -49,13 +49,16 @@ export class GameAgent {
     console.log('\n' + '🤖'.repeat(40));
     console.log('🤖 INITIALIZING G.A.M.E WHALE AGENT');
     console.log('🤖'.repeat(40) + '\n');
-    
+
     // Test connections
     await this.analyzer.testConnections();
-    
+
+    // Initialize Telegram bot commands
+    await this.analyzer.initializeTelegramCommands(this);
+
     // Start scheduler
     this.scheduler.start(true); // Run immediately on start
-    
+
     console.log('🎮 G.A.M.E Agent is now active and ready!\n');
   }
   
@@ -175,6 +178,7 @@ export class GameAgent {
   shutdown(): void {
     console.log('\n👋 Shutting down G.A.M.E Whale Agent...');
     this.scheduler.stop();
+    this.analyzer.stopTelegramPolling();
     console.log('✅ Agent stopped successfully\n');
   }
   

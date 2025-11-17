@@ -53,9 +53,12 @@ export class DatabaseService {
       throw new Error('DATABASE_URL not provided. Railway should inject this automatically.');
     }
     
+    // Railway databases always require SSL
+    const isRailway = dbUrl.includes('railway') || dbUrl.includes('rlwy');
+
     this.pool = new Pool({
       connectionString: dbUrl,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      ssl: isRailway ? { rejectUnauthorized: false } : false,
       max: 20, // Maximum pool size
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
